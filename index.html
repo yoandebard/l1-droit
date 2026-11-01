@@ -158,6 +158,7 @@ th{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;le
 .ev.done{opacity:.5;text-decoration:line-through}
 .more{font-size:11px;color:var(--muted)}
 .tag{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 5px;border-radius:5px;font-size:11px;font-weight:700;color:#fff;background:var(--tc);flex:none}
+.li .t .tag{color:#fff;font-size:11px}
 .legend{display:flex;gap:6px;flex-wrap:wrap}
 .legend .chip{gap:6px}
 .weekcols{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
@@ -642,6 +643,7 @@ VIEWS.accueil=()=>{
     <div class="card tile"><span class="lbl">Audios écoutés</span><span class="big num">${Math.round(tot.pct*100)} %</span><div class="bar"><i style="width:${tot.pct*100}%;background:var(--accent)"></i></div><span class="lbl">${fmtMin(tot.done)} sur ${fmtMin(tot.tot)}</span></div>
     <div class="card tile"><span class="lbl">Temps d’étude, 7 derniers jours</span><span class="big num">${fmtMin(weekMinutes())}</span><button class="btn sm" data-go="minuteur" style="align-self:flex-start">Lancer une session</button></div>
   </div>
+  ${quickCard()}
   ${depotCard(true)}
   ${overdue.length?`<div class="card" style="border-color:var(--bad);background:var(--bad-soft)"><h3 style="color:var(--bad)">En retard (${overdue.length})</h3><div class="list">${overdue.slice(0,5).map(e=>eventLine(e)).join("")}</div></div>`:""}
   <div class="grid g2">
@@ -2184,6 +2186,107 @@ document.addEventListener("keydown",e=>{
 });
 let srT;
 document.addEventListener("input",e=>{if(e.target.id==="gq"){UI.q=e.target.value;UI.srMore={};clearTimeout(srT);srT=setTimeout(()=>{render();const i=$("#gq");if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}},260)}});
+
+/* ================= Mise à jour express de l'agenda ================= */
+const QK_EX="Ex. : Nouveau regroupement de droit constit le 18 novembre de 18h à 19h30. Le devoir de méthodo n°3 est repoussé au 22 novembre. Permanence d’histoire du droit jeudi à 14h.";
+function quickCard(){
+  const q=UI.qk||{};const plan=q.plan;
+  return `<div class="card" id="quickcard" style="border-color:var(--accent)">
+    <div class="card-h"><div class="row nowrap">${ic("spark",'width="20" height="20" style="color:var(--accent)"')}<h2>Mise à jour express</h2></div><span class="small muted">Écris ce qui change, je mets l’agenda à jour</span></div>
+    <form data-form="quick" class="grid" style="gap:8px">
+      <textarea id="qkText" rows="2" placeholder="${esc(QK_EX)}" aria-label="Ce qui change dans ton agenda">${esc(q.text||"")}</textarea>
+      <div class="row"><button type="button" class="btn sm" data-act="qkImg">${ic("file")}${q.img?esc(q.img.name.slice(0,30)):"Joindre une capture de l’annonce"}</button>${q.img?`<button type="button" class="icon-btn" data-act="qkImgRm" aria-label="Retirer l’image">${ic("x")}</button>`:""}<span class="sp"></span><button class="btn pri" ${sampleApi&&!q.loading?"":"disabled"}>${q.loading?"Analyse…":`${ic("spark")}Analyser`}</button></div>
+    </form>${aiOff()}
+    ${q.error?`<p class="small" style="color:var(--bad)">${esc(q.error)}</p>`:""}
+    ${plan?quickPlanView(plan):""}
+    ${q.undo?`<div class="row ai-out small"><span style="flex:1">${esc(q.undo.label)}</span><button class="btn sm" data-act="qkUndo">Annuler</button><button class="icon-btn" data-act="qkClose" aria-label="Fermer">${ic("x")}</button></div>`:""}
+  </div>`;
+}
+function qkFind(id){if(!id)return null;if(id.startsWith("t:")){const t=S.tasks.find(x=>x.id===id.slice(2));return t?{id,title:t.title,date:t.due,type:"tache",subject:t.subject,start:""}:null}return officialEvents().concat(S.events).find(e=>e.id===id)||null}
+function qkDesc(a){
+  const t=TYPES[a.type]||TYPES.perso;const when=a.date?fd(a.date,{weekday:"short",day:"numeric",month:"short"})+(a.debut?` · ${a.debut}${a.fin?"–"+a.fin:""}`:""):"sans date";
+  return {tag:tag(a.type||"perso"),when};
+}
+function quickPlanView(plan){
+  if(!plan.actions.length)return `<p class="ai-out small">${esc(plan.resume||"Je n’ai rien trouvé à modifier dans l’agenda.")}</p>`;
+  return `<div class="grid" style="gap:8px">${plan.resume?`<p class="small muted">${esc(plan.resume)}</p>`:""}
+    <div class="list">${plan.actions.map((a,i)=>{const ex=qkFind(a.id);const s=subj(a.matiere||(ex&&ex.subject));
+      let label,detail;
+      if(a.op==="ajouter"){const d=qkDesc(a);label=`<span class="pill ok">Ajouter</span> ${d.tag} <b>${esc(a.titre)}</b>`;detail=`${d.when}${s.id?" · "+esc(s.short):""}${a.note?" · "+esc(a.note):""}`}
+      else if(a.op==="modifier"&&ex){const old=`${fd(ex.date,{day:"numeric",month:"short"})}${ex.start?" "+ex.start:""}`;const nd=a.date||ex.date;const neu=`${fd(nd,{day:"numeric",month:"short"})}${(a.debut||ex.start)?" "+(a.debut||ex.start):""}${(a.fin||ex.end)?"–"+(a.fin||ex.end):""}`;label=`<span class="pill warn">Modifier</span> ${tag(ex.type)} <b>${esc(a.titre||ex.title)}</b>`;detail=`${esc(old)} → <b>${esc(neu)}</b>`}
+      else if(a.op==="supprimer"&&ex){label=`<span class="pill bad">Supprimer</span> ${tag(ex.type)} <b>${esc(ex.title)}</b>`;detail=fd(ex.date,{weekday:"short",day:"numeric",month:"short"})}
+      else return "";
+      return `<label class="li" style="cursor:pointer;align-items:flex-start"><input type="checkbox" class="check" data-qk="${i}" checked style="margin-top:3px"><div class="t"><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--ink);font-size:14.5px">${label}</span><span>${detail}</span></div></label>`}).join("")}</div>
+    <div class="row"><button class="btn pri" data-act="qkApply">${ic("check")}Valider</button><button class="btn ghost" data-act="qkClose">Ignorer</button></div></div>`;
+}
+async function quickAnalyze(){
+  const text=($("#qkText")||{}).value||"";UI.qk=UI.qk||{};UI.qk.text=text;
+  if(!text.trim()&&!UI.qk.img){toast("Écris ce qui change ou joins une capture.");return}
+  UI.qk.loading=true;UI.qk.error="";UI.qk.plan=null;UI.qk.undo=null;render();
+  const t=today();
+  const evs=allEvents({j:false}).filter(e=>(e.endDate||e.date)>=addDays(t,-30)).slice(0,120).map(e=>`${e.id} | ${e.date}${e.start?" "+e.start:""}${e.end?"-"+e.end:""} | ${e.type} | ${e.subject||"-"} | ${e.title}`).join("\n");
+  const prompt=`Tu mets à jour l'agenda d'un étudiant de L1 droit à distance (IED Paris 1). Aujourd'hui : ${t} (${fd(t,{weekday:"long"})}). Année universitaire 2026-2027 : un mois de septembre à décembre sans année = 2026, de janvier à août = 2027 ; « jeudi » = le prochain jeudi à venir.
+Matières (id = nom) : ${S.subjects.map(s=>s.id+" = "+s.name).join(" ; ")}
+Types possibles : regroupement (obligatoire), permanence (facultative), devoir (à rendre ; heure par défaut 23:59), examen, revision, perso, tache (chose à faire sans horaire).
+
+Agenda actuel (id | date heure | type | matière | intitulé) :
+${evs||"(vide)"}
+
+Message de l'étudiant :
+« ${text||"(voir l'image jointe : annonce à lire)"} »
+
+Déduis les changements à faire. Si un élément décrit existe déjà (même matière, même type, date proche ou même numéro), MODIFIE-le avec son id au lieu d'en ajouter un doublon. N'invente aucune date absente du message ou de l'image.
+Réponds uniquement en JSON :
+{"resume":"une phrase","actions":[{"op":"ajouter","type":"regroupement","titre":"Regroupement droit constitutionnel","date":"AAAA-MM-JJ","debut":"HH:MM ou vide","fin":"HH:MM ou vide","matiere":"id ou vide","note":"lien, salle, consigne ou vide"},{"op":"modifier","id":"id existant","date":"AAAA-MM-JJ si changée","debut":"","fin":"","titre":"si changé"},{"op":"supprimer","id":"id existant"}]}`;
+  try{
+    const opts={modelTier:"default"};if(UI.qk.img)opts.images=[UI.qk.img];
+    const v=await aiJSON(prompt,opts);
+    const okD=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||""),okH=h=>/^\d{2}:\d{2}$/.test(h||"");
+    const actions=((v&&v.actions)||[]).map(a=>({op:a.op,id:a.id||"",type:TYPES[a.type]?a.type:"perso",titre:String(a.titre||"").slice(0,160),date:okD(a.date)?a.date:"",debut:okH(a.debut)?a.debut:"",fin:okH(a.fin)?a.fin:"",matiere:S.subjects.some(s=>s.id===a.matiere)?a.matiere:"",note:String(a.note||"").slice(0,300)}))
+      .filter(a=>(a.op==="ajouter"&&a.titre&&(a.date||a.type==="tache"))||((a.op==="modifier"||a.op==="supprimer")&&qkFind(a.id)));
+    UI.qk.plan={resume:(v&&v.resume)||"",actions};
+  }catch(e){UI.qk.error=aiError(e)}
+  UI.qk.loading=false;render();
+}
+function quickApply(){
+  const plan=UI.qk.plan;const chosen=plan.actions.filter((a,i)=>{const c=document.querySelector(`[data-qk="${i}"]`);return !c||c.checked});
+  if(!chosen.length){toast("Aucune modification cochée.");return}
+  const snap={events:JSON.parse(JSON.stringify(S.events)),official:JSON.parse(JSON.stringify(S.official)),tasks:JSON.parse(JSON.stringify(S.tasks))};
+  let n={a:0,m:0,s:0};let firstDate="";
+  for(const a of chosen){
+    if(a.op==="ajouter"){
+      if(a.type==="tache"){S.tasks.push({id:uid(),title:a.titre,due:a.date,subject:a.matiere,done:false})}
+      else S.events.push({id:uid(),title:a.titre,date:a.date,start:a.debut||(a.type==="devoir"?"23:59":""),end:a.fin,subject:a.matiere,type:a.type,note:a.note});
+      n.a++;firstDate=firstDate||a.date;
+    }else if(a.op==="modifier"){
+      const ch={};if(a.date)ch.date=a.date;if(a.debut)ch.start=a.debut;if(a.fin)ch.end=a.fin;if(a.titre)ch.title=a.titre;if(a.note)ch.note=a.note;
+      if(a.id.startsWith("t:")){const t=S.tasks.find(x=>x.id===a.id.slice(2));if(t){if(ch.date)t.due=ch.date;if(ch.title)t.title=ch.title}}
+      else if(isOfficial(a.id)){S.official[a.id]={...(S.official[a.id]||{}),...ch}}
+      else{const e=S.events.find(x=>x.id===a.id);if(e)Object.assign(e,ch)}
+      n.m++;firstDate=firstDate||a.date;
+    }else if(a.op==="supprimer"){
+      if(a.id.startsWith("t:"))S.tasks=S.tasks.filter(x=>x.id!==a.id.slice(2));
+      else if(isOfficial(a.id))S.official[a.id]={...(S.official[a.id]||{}),hidden:true};
+      else S.events=S.events.filter(x=>x.id!==a.id);
+      n.s++;
+    }
+  }
+  save("events");save("official");save("tasks");
+  const parts=[n.a&&`${n.a} ajout${n.a>1?"s":""}`,n.m&&`${n.m} modification${n.m>1?"s":""}`,n.s&&`${n.s} suppression${n.s>1?"s":""}`].filter(Boolean).join(", ");
+  UI.qk={text:"",img:null,plan:null,undo:{snap,label:`Agenda mis à jour : ${parts}.`}};
+  if(firstDate){UI.calSel=firstDate;UI.calMonth=firstDate.slice(0,7)}
+  render();toast(`Agenda mis à jour : ${parts}.`);
+}
+Object.assign(A,{
+  qkImg:()=>pickFile("image/*",f=>{UI.qk=UI.qk||{};UI.qk.text=($("#qkText")||{}).value||UI.qk.text;UI.qk.img=f;render()}),
+  qkImgRm:()=>{UI.qk.img=null;UI.qk.text=($("#qkText")||{}).value||"";render()},
+  qkApply:()=>quickApply(),
+  qkClose:()=>{const t=($("#qkText")||{}).value||"";UI.qk={text:UI.qk&&UI.qk.plan?t:"",img:null};render()},
+  qkUndo:()=>{const s=UI.qk.undo.snap;S.events=s.events;S.official=s.official;S.tasks=s.tasks;save("events");save("official");save("tasks");UI.qk={};render();toast("Modifications annulées.")}
+});
+document.addEventListener("submit",e=>{if(e.target.dataset.form==="quick"){e.preventDefault();quickAnalyze()}});
+document.addEventListener("input",e=>{if(e.target.id==="qkText"){UI.qk=UI.qk||{};UI.qk.text=e.target.value}});
+document.addEventListener("keydown",e=>{if(e.target.id==="qkText"&&e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.target.form.requestSubmit()}});
 
 /* ================= Événements DOM ================= */
 document.addEventListener("click",e=>{
