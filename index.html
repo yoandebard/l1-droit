@@ -2409,7 +2409,7 @@ async function afterLogin(user){
   if(S.profile.email!==user.email){S.profile.email=user.email;save("profile")}
   try{localStorage.removeItem("l1ied-pending-profile")}catch(e){}
   sampleApi=claudeSample;assetsApi=STORAGE;
-  applyTheme();startApp();
+  $("#splash").hidden=true;applyTheme();startApp();
 }
 function gate(){}
 async function initCloud(){}
